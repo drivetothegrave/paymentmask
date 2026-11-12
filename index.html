@@ -44,8 +44,6 @@
   .tab[aria-selected="true"] { background:#fff; color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,.12); }
   .tab:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
   .panel[hidden] { display:none; }
-  .toggle { display:flex; align-items:center; gap:10px; margin:14px 0 0 4px; font-size:15px; cursor:pointer; user-select:none; }
-  .toggle input { width:18px; height:18px; accent-color:var(--text); cursor:pointer; }
   .chip small { color:var(--muted); margin-left:4px; }
   #panel-plate .field { position:relative; }
   #panel-plate .field input { font-size:32px; }
@@ -92,9 +90,6 @@
   </div>
   <div class="error-text" id="p-error"></div>
 
-  <label class="toggle">
-    <input type="checkbox" id="force-foreign"> Иностранный номер
-  </label>
 
   <div class="section-title">Попробуйте вставить</div>
   <div class="chips" id="p-chips"></div>
@@ -534,7 +529,6 @@ function attachPlateMask(input, { onChange, isForeign = () => false } = {}) {
 const input   = document.getElementById('plate');
 const field   = document.getElementById('p-field');
 const errorEl = document.getElementById('p-error');
-const force   = document.getElementById('force-foreign');
 let last = parsePlate('');
 let touched = false;
 
@@ -547,7 +541,6 @@ function render(res) {
   const v = document.getElementById('p-d-valid');
   v.textContent = res.value ? (res.valid ? 'Корректный' : 'Неполный / неверный') : '—';
   v.className = 'badge ' + (res.value ? (res.valid ? 'ok' : 'bad') : '');
-  input.placeholder = force.checked ? 'Как на номерном знаке' : 'А 000 АА 00';
   // пока печатают — ошибку только убираем, но не показываем
   if (res.valid) showError(false);
 }
@@ -557,12 +550,11 @@ function showError(on) {
   errorEl.textContent = on ? errorText(last) : '';
 }
 
-const mask = attachPlateMask(input, { onChange: render, isForeign: () => force.checked });
+const mask = attachPlateMask(input, { onChange: render });
 
 input.addEventListener('blur', () => { touched = true; showError(!last.valid); });
 input.addEventListener('focus', () => showError(false));
 field.addEventListener('click', () => input.focus());
-force.addEventListener('change', () => { mask.refresh(); if (touched) showError(!last.valid); });
 
 const EXAMPLES = [
   ['a123bc77', 'латиницей'],
