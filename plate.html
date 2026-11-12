@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Прототип поля госномера</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --field: #f2f2f2;
+    --text: #1a1a1a;
+    --muted: #8f8f8f;
+    --error: #e5383b;
+    --ok: #1f9d55;
+    --line: #e4e4e4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Onest", system-ui, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 48px 20px 64px; }
+  h1 { font-size: 28px; font-weight: 500; margin: 0 0 24px; }
+
+  /* Поле как на макете */
+  .field {
+    position: relative;
+    background: var(--field);
+    border-radius: 22px;
+    padding: 18px 28px 20px;
+    border: 2px solid transparent;
+    transition: border-color .15s, background .15s;
+    cursor: text;
+  }
+  .field:focus-within { background: #ececec; }
+  .field.error { border-color: var(--error); }
+  .field label {
+    display: block;
+    font-size: 17px;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    outline: none;
+    padding: 0;
+    font: 400 32px/1.2 "Onest", system-ui, sans-serif;
+    color: var(--text);
+    letter-spacing: .5px;
+  }
+  .field input::placeholder { color: var(--muted); opacity: 1; }
+  .error-text {
+    color: var(--error);
+    font-size: 14px;
+    margin: 8px 0 0 28px;
+    min-height: 18px;
+  }
+
+  .toggle {
+    display: flex; align-items: center; gap: 10px;
+    margin: 14px 0 0 4px; font-size: 15px; cursor: pointer; user-select: none;
+  }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--text); cursor: pointer; }
+
+  /* Примеры */
+  .section-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin: 36px 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font: 400 14px "Onest", sans-serif;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 999px;
+    padding: 7px 12px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .chip:hover { background: var(--field); }
+  .chip small { color: var(--muted); margin-left: 4px; }
+
+  /* Что уходит в код */
+  .debug {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 6px 18px;
+    font-size: 15px;
+  }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row span:first-child { color: var(--muted); }
+  .row code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; }
+  .badge { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--field); }
+  .badge.ok { background: #e3f5ea; color: var(--ok); }
+  .badge.bad { background: #fde8e8; color: var(--error); }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Госномер автомобиля</h1>
+
+  <div class="field" id="field">
+    <label for="plate">Госномер автомобиля</label>
+    <input id="plate" type="text" placeholder="А 000 АА 00"
+           autocomplete="off" autocapitalize="characters" spellcheck="false">
+  </div>
+  <div class="error-text" id="error"></div>
+
+  <label class="toggle">
+    <input type="checkbox" id="force-foreign"> Иностранный номер
+  </label>
+
+  <div class="section-title">Попробуйте вставить</div>
+  <div class="chips" id="chips"></div>
+
+  <div class="section-title">Что получает код</div>
+  <div class="debug">
+    <div class="row"><span>Тип</span><span id="d-type" class="badge">—</span></div>
+    <div class="row"><span>В поле</span><code id="d-display">—</code></div>
+    <div class="row"><span>Уходит на бэкенд</span><code id="d-value">—</code></div>
+    <div class="row"><span>Валидность</span><span id="d-valid" class="badge">—</span></div>
+  </div>
+  <div class="note">Ошибка показывается только после ухода из поля. Пока вы печатаете, маска не ругается.</div>
+</div>
+
+<script>
+/* ===== Логика маски (то же, что в plate.js) ===== */
+const RU_LETTERS = 'АВЕКМНОРСТУХ';
+const LAT_TO_CYR = { A:'А', B:'В', E:'Е', K:'К', M:'М', H:'Н', O:'О', P:'Р', C:'С', T:'Т', Y:'У', X:'Х', Ё:'Е' };
+const CYR_TO_LAT = { А:'A', В:'B', Е:'E', К:'K', М:'M', Н:'H', О:'O', Р:'P', С:'C', Т:'T', У:'Y', Х:'X', Ё:'E' };
+const RU_PATTERN = 'LDDDLLDDD';
+const RU_SPACES_AFTER = [1, 4, 6];
+
+function toRuPrefix(raw) {
+  const chars = raw.toUpperCase().replace(/\s*RUS$/, '').replace(/[\s-]/g, '');
+  if (chars.length > RU_PATTERN.length) return null;
+  let out = '';
+  for (let ch of chars) {
+    ch = LAT_TO_CYR[ch] || ch;
+    const need = RU_PATTERN[out.length];
+    const ok = need === 'L' ? RU_LETTERS.includes(ch) : /\d/.test(ch);
+    if (!ok) return null;
+    out += ch;
+  }
+  return out;
+}
+
+function formatRu(c) {
+  let out = '';
+  for (let i = 0; i < c.length; i++) {
+    out += c[i];
+    if (RU_SPACES_AFTER.includes(i + 1) && i + 1 < c.length) out += ' ';
+  }
+  return out;
+}
+
+function cleanForeign(raw) {
+  return raw.toUpperCase()
+    .replace(/[А-ЯЁ]/g, ch => CYR_TO_LAT[ch] ?? '')
+    .replace(/[^A-Z0-9 -]/g, '')
+    .replace(/([ -])[ -]+/g, '$1')
+    .replace(/^[ -]/, '')
+    .slice(0, 14);
+}
+
+function parsePlate(raw, forceForeign = false) {
+  const ru = forceForeign ? null : toRuPrefix(raw);
+  if (ru !== null) {
+    const valid = /^[АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$/.test(ru) && ru.slice(1, 4) !== '000';
+    return { type: 'ru', display: formatRu(ru), value: ru, valid };
+  }
+  const display = cleanForeign(raw);
+  const value = display.replace(/[\s-]/g, '');
+  const valid = value.length >= 2 && value.length <= 12 && /\d/.test(value);
+  return { type: 'foreign', display, value, valid };
+}
+
+function errorText(res) {
+  if (!res.value) return 'Укажите госномер';
+  if (res.type === 'ru') {
+    if (res.value.length < 8) return 'Введите номер полностью, например А 123 ВС 77';
+    if (res.value.slice(1, 4) === '000') return 'Номер 000 не выдаётся';
+  }
+  return 'Проверьте номер';
+}
+
+function attachPlateMask(input, { onChange, isForeign = () => false } = {}) {
+  let type = 'ru';
+
+  input.addEventListener('keydown', e => {
+    const p = input.selectionStart;
+    if (type === 'ru' && e.key === 'Backspace' && p === input.selectionEnd &&
+        p > 0 && input.value[p - 1] === ' ') {
+      input.setSelectionRange(p - 1, p - 1);
+    }
+  });
+
+  const apply = (keepCaret) => {
+    const significant = s => s.replace(/[^0-9A-Za-zА-Яа-яЁё]/g, '').length;
+    const before = keepCaret ? significant(input.value.slice(0, input.selectionStart)) : Infinity;
+
+    const res = parsePlate(input.value, isForeign());
+    type = res.type;
+    input.value = res.display;
+
+    let pos = 0, n = 0;
+    while (pos < res.display.length && n < before) {
+      if (/[0-9A-ZА-Я]/.test(res.display[pos])) n++;
+      pos++;
+    }
+    if (keepCaret) input.setSelectionRange(pos, pos);
+    onChange && onChange(res);
+    return res;
+  };
+
+  input.addEventListener('input', () => apply(true));
+  return { refresh: () => apply(false) };
+}
+
+/* ===== Обвязка прототипа ===== */
+const input   = document.getElementById('plate');
+const field   = document.getElementById('field');
+const errorEl = document.getElementById('error');
+const force   = document.getElementById('force-foreign');
+let last = parsePlate('');
+let touched = false;
+
+function render(res) {
+  last = res;
+  const t = document.getElementById('d-type');
+  t.textContent = res.value ? (res.type === 'ru' ? 'Российский' : 'Иностранный') : '—';
+  document.getElementById('d-display').textContent = res.display || '—';
+  document.getElementById('d-value').textContent = res.value ? `${res.value}  (${res.type})` : '—';
+  const v = document.getElementById('d-valid');
+  v.textContent = res.value ? (res.valid ? 'Корректный' : 'Неполный / неверный') : '—';
+  v.className = 'badge ' + (res.value ? (res.valid ? 'ok' : 'bad') : '');
+  input.placeholder = force.checked ? 'Как на номерном знаке' : 'А 000 АА 00';
+  // пока печатают — ошибку только убираем, но не показываем
+  if (res.valid) showError(false);
+}
+
+function showError(on) {
+  field.classList.toggle('error', on);
+  errorEl.textContent = on ? errorText(last) : '';
+}
+
+const mask = attachPlateMask(input, { onChange: render, isForeign: () => force.checked });
+
+input.addEventListener('blur', () => { touched = true; showError(!last.valid); });
+input.addEventListener('focus', () => showError(false));
+field.addEventListener('click', () => input.focus());
+force.addEventListener('change', () => { mask.refresh(); if (touched) showError(!last.valid); });
+
+const EXAMPLES = [
+  ['a123bc77', 'латиницей'],
+  ['С 090 УС 716 RUS', 'с RUS'],
+  ['а000мм99', 'нули'],
+  ['о777оо1', 'неполный'],
+  ['B AB 1234', 'Германия'],
+  ['1234 AB-7', 'Беларусь'],
+  ['123 ABC 02', 'Казахстан'],
+  ['AB-123-CD', 'Франция'],
+];
+const chips = document.getElementById('chips');
+EXAMPLES.forEach(([val, note]) => {
+  const b = document.createElement('button');
+  b.className = 'chip';
+  b.innerHTML = `${val}<small>${note}</small>`;
+  b.addEventListener('click', () => {
+    input.value = val;
+    mask.refresh();
+    touched = true;
+    showError(!last.valid);
+  });
+  chips.appendChild(b);
+});
+
+render(last);
+</script>
+</body>
+</html>

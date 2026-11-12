@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Прототип полей документов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --field:#f2f2f2; --text:#1a1a1a; --muted:#8f8f8f; --error:#e5383b; --ok:#1f9d55; --line:#e4e4e4; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Onest",system-ui,sans-serif; color:var(--text); background:#fff; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:560px; margin:0 auto; padding:48px 20px 64px; }
+  h1 { font-size:28px; font-weight:500; margin:0 0 24px; }
+  .select-wrap { display:block; position:relative; background:var(--field); border-radius:22px; padding:16px 28px 18px; margin-bottom:16px; }
+  .select-wrap span { display:block; font-size:15px; color:var(--muted); margin-bottom:4px; }
+  select { width:100%; border:0; background:transparent; font:400 18px "Onest",sans-serif; color:var(--text); outline:none; appearance:none; cursor:pointer; padding-right:24px; }
+  .select-wrap::after { content:""; position:absolute; right:28px; bottom:26px; width:8px; height:8px; border-right:2px solid var(--text); border-bottom:2px solid var(--text); transform:rotate(45deg); pointer-events:none; }
+  .field { background:var(--field); border-radius:22px; padding:18px 28px 20px; border:2px solid transparent; transition:border-color .15s, background .15s; cursor:text; }
+  .field:focus-within { background:#ececec; }
+  .field.error { border-color:var(--error); }
+  .field label { display:block; font-size:17px; margin-bottom:6px; }
+  .field input { width:100%; border:0; background:transparent; outline:none; padding:0; font:400 30px/1.2 "Onest",system-ui,sans-serif; color:var(--text); letter-spacing:.5px; }
+  .field input::placeholder { color:var(--muted); opacity:1; }
+  .error-text { color:var(--error); font-size:14px; margin:8px 0 0 28px; min-height:18px; }
+  .submit { margin-top:8px; width:100%; border:0; border-radius:18px; padding:18px; background:var(--text); color:#fff; font:500 18px "Onest",sans-serif; cursor:pointer; }
+  .submit:hover { background:#333; }
+  .section-title { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin:32px 0 10px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { font:400 14px "Onest",sans-serif; border:1px solid var(--line); background:#fff; border-radius:999px; padding:7px 12px; cursor:pointer; color:var(--text); }
+  .chip:hover { background:var(--field); }
+  .debug { border:1px solid var(--line); border-radius:16px; padding:6px 18px; font-size:15px; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:0; }
+  .row > span:first-child { color:var(--muted); flex-shrink:0; }
+  .row code { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:13px; text-align:right; word-break:break-all; }
+  .badge { font-size:13px; padding:3px 10px; border-radius:999px; background:var(--field); text-align:right; }
+  .badge.ok { background:#e3f5ea; color:var(--ok); }
+  .badge.bad { background:#fde8e8; color:var(--error); }
+  .note { font-size:13px; color:var(--muted); margin-top:10px; line-height:1.45; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Документ</h1>
+  <p style="margin:-12px 0 24px"><a href="plate.html" style="color:#8f8f8f">Прототип поля госномера →</a></p>
+  <label class="select-wrap">
+    <span>Тип документа</span>
+    <select id="doc"></select>
+  </label>
+
+  <div class="field" id="field">
+    <label for="field-input" id="field-label"></label>
+    <input id="field-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false">
+  </div>
+  <div class="error-text" id="error"></div>
+  <button class="submit" id="submit" type="button">Отправить</button>
+
+  <div class="section-title">Попробуйте вставить</div>
+  <div class="chips" id="chips"></div>
+
+  <div class="section-title">Что получает код</div>
+  <div class="debug">
+    <div class="row"><span>В поле</span><code id="d-display">—</code></div>
+    <div class="row"><span>Уходит на бэкенд</span><code id="d-value">—</code></div>
+    <div class="row"><span>Регулярка</span><code id="d-regex">—</code></div>
+    <div class="row"><span>Статус</span><span id="d-valid" class="badge">—</span></div>
+  </div>
+  <div class="note">Недовведённый номер подсвечивается после ухода из поля. Пустое поле — только по кнопке «Отправить». Пока вы печатаете, маска не ругается, а лишние символы просто не вводятся.</div>
+</div>
+<script>
+/**
+ * Маски и валидация полей российских документов.
+ *
+ * Как устроено:
+ *  - у каждого документа есть один или несколько вариантов разбора (variants);
+ *    вариант — это список сегментов (тип символов, min/max длина, разделитель перед сегментом);
+ *  - ввод разбирается первым вариантом, под который он подходит целиком;
+ *    последний вариант работает «мягко»: неподходящие символы просто выкидываются;
+ *  - в поле показывается отформатированное значение (с пробелами/дефисами),
+ *    на бэкенд уходит value — без разделителей, оно проходит исходные регулярки;
+ *  - ошибка = пусто / не прошла регулярка / не прошла доп. проверка (СНИЛС, римские цифры).
+ */
+(function (root) {
+  // Латинские буквы, похожие на кириллические
+  const LAT2CYR = { A:'А', B:'В', E:'Е', K:'К', M:'М', H:'Н', O:'О', P:'Р', C:'С', T:'Т', Y:'У', X:'Х' };
+  // Кириллица, похожая на римские цифры (если пользователь не переключил раскладку)
+  const CYR2ROMAN = { 'Х':'X', 'С':'C' };
+
+  // Каждый тип: (символ, текущее содержимое сегмента) → нормализованный символ или null
+  const CHARSETS = {
+    digit:      ch => /\d/.test(ch) ? ch : null,
+    roman:      (ch, cur) => {
+      let u = ch.toUpperCase();
+      if (!cur && CYR2ROMAN[u]) u = CYR2ROMAN[u];   // только в начале, дальше Х/С — уже буквы серии
+      return 'IVXLC'.includes(u) ? u : null;
+    },
+    cyr:        ch => { let u = ch.toUpperCase(); u = LAT2CYR[u] || u; return /[А-Я]/.test(u) ? u : null; },
+    cyrDigit:   ch => { let u = ch.toUpperCase(); u = LAT2CYR[u] || u; return /[А-Я0-9]/.test(u) ? u : null; },
+    letter:     ch => { const u = ch.toUpperCase(); return /[A-ZА-Я]/.test(u) ? u : null; },
+    alnum:      ch => { const u = ch.toUpperCase(); return /[A-ZА-Я0-9]/.test(u) ? u : null; },
+  };
+
+  const SEPARATORS = /[\s\-–—№#./\\]/g;   // всё, что пользователь мог вставить «для красоты»
+
+  const ROMAN_RE = /^C{0,3}(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/;
+
+  function snilsChecksumOk(v) {
+    const body = v.slice(0, 9);
+    if (+body <= 1001998) return true;            // для старых номеров контрольное число не считается
+    let sum = 0;
+    for (let i = 0; i < 9; i++) sum += +body[i] * (9 - i);
+    let c = sum < 100 ? sum : (sum === 100 || sum === 101) ? 0 : sum % 101;
+    if (c === 100) c = 0;
+    return c === +v.slice(9);
+  }
+
+  // Сокращения для сегментов
+  const S = (type, min, max = min, sep = '') => ({ type, min, max, sep });
+
+  // Повторяющиеся описания
+  const SERIES2_NUM7 = { // [A-ZА-Я]{2}\d{7}
+    placeholder: 'АА 0000000',
+    variants: [[S('letter', 2), S('digit', 7, 7, ' ')]],
+    regex: /^[A-ZА-Я]{2}\d{7}$/,
+  };
+  // Нули в плейсхолдере — только для цифр. Где можно и буквы, и цифры, пишем длину:
+  // «19 символов», «От 4 до 14 символов»
+  const ALNUM = (min, max, placeholder = min === max ? `${min} символов` : `От ${min} до ${max} символов`) => ({
+    placeholder,
+    variants: [[S('alnum', min, max)]],
+    regex: new RegExp(`^[A-Za-zА-Яа-я0-9]{${min},${max}}$`),
+  });
+  const DIGITS = (n, placeholder = '0'.repeat(n), variants = [[S('digit', n)]]) => ({
+    placeholder, variants,
+    regex: new RegExp(`^\\d{${n}}$`),
+  });
+  const ROMAN_SERIES = (maxRoman) => ({
+    placeholder: 'IV-АА 000000',
+    variants: [[S('roman', 1, maxRoman), S('cyr', 2, 2, '-'), S('digit', 6, 6, ' ')]],
+    regex: new RegExp(`^[IVXLC]{1,${maxRoman}}[А-Я]{2}\\d{6}$`),
+    check: v => ROMAN_RE.test(v.match(/^[IVXLC]+/)[0]) ? null
+              : 'Римская часть серии записана неверно',
+  });
+
+  const DOCUMENTS = [
+    { code: '01', name: 'Паспорт гражданина РФ',
+      placeholder: '0000 000000',
+      variants: [[S('digit', 4), S('digit', 6, 6, ' ')]],
+      regex: /^\d{10}$/ },
+
+    { code: '02', name: 'Свидетельство о рождении', ...ROMAN_SERIES(4) },
+    { code: '03', name: 'Паспорт моряка', ...SERIES2_NUM7 },
+    { code: '04', name: 'Удостоверение личности военнослужащего', ...SERIES2_NUM7 },
+    { code: '05', name: 'Военный билет', ...SERIES2_NUM7 },
+    { code: '06', name: 'Временное удостоверение личности гражданина РФ', ...ALNUM(19, 19) },
+    { code: '07', name: 'Справка об освобождении из мест лишения свободы', checkName: 'справку об освобождении из мест лишения свободы', ...ALNUM(19, 19) },
+    { code: '08', name: 'Паспорт иностранного гражданина', ...ALNUM(4, 19) },
+    { code: '09', name: 'Вид на жительство', ...ALNUM(4, 14) },
+    { code: '10', name: 'Разрешение на временное проживание', ...DIGITS(9) },
+
+    { code: '11', name: 'Удостоверение беженца',
+      placeholder: 'АА 0000000',
+      variants: [[S('cyrDigit', 2), S('digit', 7, 7, ' ')]],
+      regex: /^[А-Я0-9]{2}\d{7}$/ },
+
+    { code: '12', name: 'Миграционная карта', checkName: 'миграционную карту',
+      placeholder: 'От 9 до 12 цифр',
+      variants: [[S('digit', 9, 12)]],
+      regex: /^\d{9,12}$/ },
+
+    { code: '13', name: 'Паспорт гражданина СССР', ...ROMAN_SERIES(6) },
+
+    { code: '14', name: 'СНИЛС',
+      placeholder: '000-000-000 00',
+      variants: [[S('digit', 3), S('digit', 3, 3, '-'), S('digit', 3, 3, '-'), S('digit', 2, 2, ' ')]],
+      regex: /^\d{11}$/,
+      check: v => snilsChecksumOk(v) ? null : 'Проверьте СНИЛС — не сходится контрольное число' },
+
+    { code: '22', name: 'Водительское удостоверение',
+      placeholder: '00 00 000000',   // позиции 3–4 допускают и буквы, но в современных ВУ там цифры
+      variants: [
+        [S('digit', 2), S('alnum', 2, 2, ' '), S('digit', 6, 6, ' ')],   // российское: 00 00 000000 (в старых бланках 00 АА 000000)
+        [S('alnum', 6, 32)],                                             // иностранное / прочее
+      ],
+      regex: /^(?:\d{2}[A-Za-zА-Яа-я0-9]{2}\d{6}|0{0,13}[A-Za-zА-Яа-я0-9]{6,19})$/ },
+
+    { code: '24', name: 'Свидетельство о регистрации ТС (СТС)',
+      placeholder: '00 00 000000',   // позиции 3–4 допускают и буквы (старые бланки), но в новых там цифры
+      variants: [
+        [S('digit', 2), S('alnum', 2, 2, ' '), S('digit', 6, 6, ' ')],   // обычное: 00 00 000000 (в старых бланках 00 АА 000000)
+        [S('alnum', 6, 12)],
+      ],
+      regex: /^[A-ZА-Я0-9]{1,4}\d{5,8}$/ },
+
+    { code: '25', name: 'Охотничий билет',
+      placeholder: '00 000000',   // серия билета единого образца — код региона цифрами; буквы регулярка тоже допускает
+      variants: [[S('cyrDigit', 2), S('digit', 6, 6, ' ')]],
+      regex: /^[А-Я0-9]{2}\d{6}$/ },
+
+    { code: '26', name: 'Разрешение на хранение и ношение охотничьего оружия', ...DIGITS(8) },
+    { code: '28', name: 'Заграничный паспорт гражданина РФ',
+      ...DIGITS(9, '00 0000000', [[S('digit', 2), S('digit', 7, 7, ' ')]]) },
+    { code: '29', name: 'Свидетельство о временном убежище', ...SERIES2_NUM7 },
+    { code: '30', name: 'Свидетельство о рассмотрении ходатайства по существу', ...DIGITS(9) },
+  ];
+
+  /* ---------- движок ---------- */
+
+  // Разбор по сегментам. strict=true — вернуть null, если хоть один символ не влез.
+  function parseSegments(chars, segments, strict) {
+    const parts = segments.map(() => '');
+    let i = 0;
+    for (const raw of chars) {
+      let placed = false;
+      while (i < segments.length) {
+        const seg = segments[i];
+        const ch = parts[i].length < seg.max ? CHARSETS[seg.type](raw, parts[i]) : null;
+        if (ch !== null) { parts[i] += ch; placed = true; break; }
+        const next = segments[i + 1];
+        if (next && parts[i].length >= seg.min && CHARSETS[next.type](raw, '') !== null) { i++; continue; }
+        break;
+      }
+      if (!placed && strict) return null;
+    }
+    return parts;
+  }
+
+  function formatParts(parts, segments) {
+    return parts.reduce((out, p, i) => out + (p && i > 0 && out ? segments[i].sep : '') + p, '');
+  }
+
+  function parse(doc, raw) {
+    const chars = [...raw.replace(SEPARATORS, '')];
+    const vs = doc.variants;
+    for (let k = 0; k < vs.length; k++) {
+      const parts = parseSegments(chars, vs[k], k < vs.length - 1);
+      if (parts) return { display: formatParts(parts, vs[k]), value: parts.join(''), variant: k };
+    }
+  }
+
+  // «Паспорт гражданина РФ» → «паспорт гражданина РФ», аббревиатуры (СНИЛС) не трогаем
+  function checkName(doc) {
+    if (doc.checkName) return doc.checkName;
+    const n = doc.name;
+    return /^[A-ZА-ЯЁ]{2}/.test(n) ? n : n[0].toLowerCase() + n.slice(1);
+  }
+
+  function validate(doc, value) {
+    if (!value) return 'Укажите ' + checkName(doc);   // показывается только по кнопке «Отправить»
+    if (!doc.regex.test(value)) return 'Проверьте ' + checkName(doc);
+    return doc.check ? doc.check(value) : null;
+  }
+
+  /**
+   * Подключить маску к input.
+   * onChange({ display, value, valid, empty, error }) — на каждое изменение.
+ * Правило показа ошибок: на blur — только если поле НЕ пустое и невалидно;
+ * по кнопке «Отправить» — любая ошибка, включая «Укажите {документ}».
+   * Возвращает { setDoc(code), refresh(), getState() }.
+   */
+  function attachDocMask(input, code, onChange) {
+    let doc = getDoc(code);
+    let state = { display: '', value: '', valid: false, empty: true, error: validate(doc, '') };
+    const isSep = ch => ch === ' ' || ch === '-';
+
+    input.addEventListener('keydown', e => {
+      const p = input.selectionStart;
+      if (e.key === 'Backspace' && p === input.selectionEnd && p > 0 && isSep(input.value[p - 1])) {
+        input.setSelectionRange(p - 1, p - 1);
+      }
+    });
+
+    function apply(keepCaret) {
+      const sig = s => [...s].filter(ch => !isSep(ch)).length;
+      const before = keepCaret ? sig(input.value.slice(0, input.selectionStart)) : Infinity;
+      const res = parse(doc, input.value);
+      input.value = res.display;
+      if (keepCaret) {
+        let pos = 0, n = 0;
+        while (pos < res.display.length && n < before) { if (!isSep(res.display[pos])) n++; pos++; }
+        input.setSelectionRange(pos, pos);
+      }
+      const error = validate(doc, res.value);
+      // empty: поле пустое — на blur не ругаемся, «Укажите {документ}» показываем только по кнопке «Отправить»
+      state = { display: res.display, value: res.value, valid: !error, empty: !res.value, error };
+      onChange && onChange(state, doc);
+    }
+
+    input.addEventListener('input', () => apply(true));
+    input.placeholder = doc.placeholder;
+
+    return {
+      setDoc(newCode) { doc = getDoc(newCode); input.placeholder = doc.placeholder; apply(false); },
+      refresh() { apply(false); },
+      getState: () => state,
+    };
+  }
+
+  function getDoc(code) {
+    const d = DOCUMENTS.find(d => d.code === code);
+    if (!d) throw new Error('Неизвестный код документа: ' + code);
+    return d;
+  }
+
+  const api = { DOCUMENTS, getDoc, parse, validate, attachDocMask };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.DocMasks = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+const EXAMPLES = {
+  '01': ['45 10 № 123456', '4510 12'],
+  '02': ['II-мю № 654321', 'хiiаб123456', 'IIIIАБ123456'],
+  '03': ['ab1234567', 'МК12'],
+  '04': ['АБ1234567', 'АБ12345'],
+  '05': ['АК 7654321', 'АК76'],
+  '06': ['abc123def456ghi7890', 'abc123'],
+  '07': ['1234567890ABCDEFGHI', '12345'],
+  '08': ['AB1234567', 'A1'],
+  '09': ['82 1234567', '82'],
+  '10': ['123456789', '12345'],
+  '11': ['ab1234567', '121234567', 'АБ12'],
+  '12': ['1234 5678901', '12345678'],
+  '13': ['XXXVII-АБ 123456', 'IIIIАБ123456'],
+  '14': ['112-233-445 95', '112-233-445 96', '1122334'],
+  '22': ['77 АВ 123456', 'AB1234567', '77 12'],
+  '24': ['77 УА 123456', '77АА12'],
+  '25': ['ab123456', '12 1234'],
+  '26': ['12345678', '1234'],
+  '28': ['75 1234567', '7512345'],
+  '29': ['AA1234567', 'AA'],
+  '30': ['123456789', '1234'],
+};
+
+const sel = document.getElementById('doc');
+const input = document.getElementById('field-input');
+const field = document.getElementById('field');
+const label = document.getElementById('field-label');
+const errEl = document.getElementById('error');
+let touched = false;
+
+DocMasks.DOCUMENTS.forEach(d => {
+  const o = document.createElement('option');
+  o.value = d.code; o.textContent = `${d.code} · ${d.name}`;
+  sel.appendChild(o);
+});
+
+function showError(on, st) {
+  field.classList.toggle('error', on);
+  errEl.textContent = on ? st.error : '';
+}
+
+const mask = DocMasks.attachDocMask(input, sel.value, (st, doc) => {
+  document.getElementById('d-display').textContent = st.display || '—';
+  document.getElementById('d-value').textContent = st.value || '—';
+  document.getElementById('d-regex').textContent = doc.regex.source;
+  const v = document.getElementById('d-valid');
+  v.textContent = st.value ? (st.valid ? 'Корректно' : st.error) : '—';
+  v.className = 'badge ' + (st.value ? (st.valid ? 'ok' : 'bad') : '');
+  if (st.valid || st.empty) showError(false, st);
+});
+
+function renderDoc() {
+  const doc = DocMasks.getDoc(sel.value);
+  label.textContent = doc.name;
+  input.value = '';
+  touched = false;
+  mask.setDoc(sel.value);
+  showError(false, mask.getState());
+  const chips = document.getElementById('chips');
+  chips.innerHTML = '';
+  (EXAMPLES[doc.code] || []).forEach(val => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = val;
+    b.addEventListener('click', () => {
+      input.value = val; mask.refresh(); touched = true;
+      showError(!mask.getState().valid, mask.getState());
+    });
+    chips.appendChild(b);
+  });
+}
+
+sel.addEventListener('change', renderDoc);
+input.addEventListener('blur', () => { const s = mask.getState(); showError(!s.valid && !s.empty, s); });
+input.addEventListener('focus', () => showError(false, mask.getState()));
+document.getElementById('submit').addEventListener('click', () => {
+  const s = mask.getState();
+  showError(!s.valid, s);
+});
+field.addEventListener('click', () => input.focus());
+renderDoc();
+</script>
+</body>
+</html>
